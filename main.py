@@ -15,15 +15,49 @@ HISTORY_FILE = "grades_history.json"
 class HyperplanningBot:
     def __init__(self):
         self.seen_grades = self.load_history()
+        self.ensure_auth_file()
 
-    def load_history(self):
-        if os.path.exists(HISTORY_FILE):
-            try:
-                with open(HISTORY_FILE, "r", encoding="utf-8") as f:
-                    return json.load(f)
-            except json.JSONDecodeError:
-                return []
-        return []
+    def ensure_auth_file(self):
+        auth_path = "auth_state.json"
+        auth_env = os.getenv("AUTH_STATE_JSON")
+        
+        if not os.path.exists(auth_path):
+            if auth_env:
+                print("Création du fichier auth_state.json à partir de la variable d'environnement...")
+                try:
+                    with open(auth_path, "w", encoding="utf-8") as f:
+                        f.write(auth_env)
+                except Exception as e:
+                    print(f"Erreur lors de l'écriture du fichier auth : {e}")
+            else:
+                print("Attention : Pas de fichier auth_state.json ni de variable AUTH_STATE_JSON.")
+
+    # ... (rest of class) ...
+
+    def run(self):
+        auth_path = "auth_state.json"
+        
+        if not os.path.exists(auth_path):
+            print("Erreur: Fichier d'authentification introuvable.")
+            print("Configurez la variable d'environnement AUTH_STATE_JSON dans Portainer avec le contenu de votre fichier auth_state.json local.")
+            return
+
+        with sync_playwright() as p:
+            # ... (continuation)
+
+# ... (Main block) ...
+if __name__ == "__main__":
+    bot = HyperplanningBot()
+    print(f"Démarrage du bot RPi (Intervalle: {CHECK_INTERVAL_SECONDS}s)")
+    
+    while True:
+        try:
+            bot.run()
+        except Exception as e:
+            print(f"Erreur critique lors de l'exécution : {e}")
+        
+        print(f"Mise en veille pour {CHECK_INTERVAL_SECONDS} secondes...")
+        time.sleep(CHECK_INTERVAL_SECONDS)
 
     def save_history(self):
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
@@ -79,17 +113,19 @@ class HyperplanningBot:
     def run(self):
         auth_path = "auth_state.json"
         
+        # Le fichier est censé être créé par __init__ si la variable d'env est présente
         if not os.path.exists(auth_path):
             print("Erreur: Fichier d'authentification introuvable.")
-            print("Veuillez d'abord lancer 'setup_auth.py'.")
+            print("Veuillez configurer la variable AUTH_STATE_JSON dans Portainer.")
             return
 
         with sync_playwright() as p:
+            # Sur Raspberry Pi, il faut parfois forcer l'usage des exécutables installés par playwright
             browser = p.chromium.launch(headless=os.getenv("HEADLESS_MODE", "True").lower() == "true")
             try:
                 context = browser.new_context(storage_state=auth_path)
             except Exception as e:
-                print(f"Erreur chargement session: {e}. Relancez setup_auth.py")
+                print(f"Erreur chargement session: {e}.")
                 browser.close()
                 return
 

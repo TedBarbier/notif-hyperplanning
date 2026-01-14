@@ -1,5 +1,5 @@
 # Utiliser l'image officielle Playwright qui contient déjà les navigateurs et dépendances système
-FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy
+FROM mcr.microsoft.com/playwright/python:v1.57.0-jammy
 
 WORKDIR /app
 
