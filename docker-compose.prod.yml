@@ -1,0 +1,16 @@
+services:
+  hyperplanning-bot:
+    image: ghcr.io/tedbarbier/notif-hyperplanning:sha-333b85a
+    container_name: hyperplanning-bot
+    restart: unless-stopped
+    environment:
+      - HP_URL=${HP_URL}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - CHECK_INTERVAL_SECONDS=3600 # Vérification toutes les heures
+      - HEADLESS_MODE=True
+      - AUTH_STATE_JSON=${AUTH_STATE_JSON}
+    volumes:
+      - hyperplanning_data:/app/data
+
+volumes:
+  hyperplanning_data:
