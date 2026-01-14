@@ -8,6 +8,7 @@ services:
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
       - CHECK_INTERVAL_SECONDS=3600 # Vérification toutes les heures
       - HEADLESS_MODE=True
+      - AUTH_STATE_JSON=${AUTH_STATE_JSON}
     volumes:
       - hyperplanning_data:/app/data
 
