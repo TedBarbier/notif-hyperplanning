@@ -1,0 +1,18 @@
+version: '3.8'
+
+services:
+  hyperplanning-bot:
+    build: .
+    image: hyperplanning-bot:latest
+    container_name: hyperplanning-bot
+    restart: unless-stopped
+    environment:
+      - HP_URL=${HP_URL}
+      - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
+      - CHECK_INTERVAL_SECONDS=3600 # Vérification toutes les heures
+      - HEADLESS_MODE=True
+    volumes:
+      # Persistance de l'historique des notes
+      - ./grades_history.json:/app/grades_history.json
+      # Persistance de la session d'authentification
+      - ./auth_state.json:/app/auth_state.json

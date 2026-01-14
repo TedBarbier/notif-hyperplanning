@@ -1,0 +1,8 @@
+__pycache__/
+.env
+auth_state.json
+grades_history.json
+debug_page.html
+debug_page.png
+debug_page_full.html
+error_screenshot.png
