@@ -1,9 +1,6 @@
-version: '3.8'
-
 services:
   hyperplanning-bot:
     build: .
-    image: hyperplanning-bot:latest
     container_name: hyperplanning-bot
     restart: unless-stopped
     environment:
