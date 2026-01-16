@@ -1,6 +1,6 @@
 services:
   hyperplanning-bot:
-    image: ghcr.io/tedbarbier/notif-hyperplanning:sha-333b85a
+    image: ghcr.io/tedbarbier/notif-hyperplanning:latest
     container_name: hyperplanning-bot
     restart: unless-stopped
     environment:
