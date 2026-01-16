@@ -13,6 +13,8 @@ DATA_DIR = "data"
 os.makedirs(DATA_DIR, exist_ok=True) # Créer le dossier data s'il n'existe pas
 
 HP_URL = os.getenv("HP_URL")
+HP_USERNAME = os.getenv("HP_USERNAME") # Ajout pour reconnexion auto
+HP_PASSWORD = os.getenv("HP_PASSWORD") # Ajout pour reconnexion auto
 DISCORD_WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK_URL")
 HISTORY_FILE = os.path.join(DATA_DIR, "grades_history.json")
 AUTH_FILE = os.path.join(DATA_DIR, "auth_state.json")
@@ -135,15 +137,49 @@ class HyperplanningBot:
             page = context.new_page()
             
             print("Connexion à Hyperplanning...")
+            print("Connexion à Hyperplanning...")
             try:
                 page.goto(HP_URL, timeout=60000)
                 
+                # Vérification si on est redirigé vers le CAS (page de login)
+                # On regarde si on n'est PAS sur l'URL d'Hyperplanning ou si un formulaire de login est présent
+                if "login" in page.url or "cas" in page.url or page.locator("input[type='password']").count() > 0:
+                    print("Session expirée. Tentative de reconnexion automatique au CAS...")
+                    
+                    username = os.getenv("HP_USERNAME")
+                    password = os.getenv("HP_PASSWORD")
+                    
+                    if not username or not password:
+                        raise Exception("HP_USERNAME ou HP_PASSWORD manquant pour la reconnexion automatique.")
+                    
+                    # Tentative de remplissage du formulaire CAS standard
+                    # Sélecteurs génériques souvent utilisés par les CAS
+                    try:
+                        print("Remplissage du formulaire...")
+                        page.fill("input[name='username'], input[name='user'], #username", username)
+                        page.fill("input[name='password'], input[name='pass'], #password", password)
+                        
+                        # Click sur le bouton de soumission (souvent type='submit' ou name='submit')
+                        page.click("input[type='submit'], button[type='submit'], .btn-submit")
+                        
+                        print("Validation du formulaire...")
+                        page.wait_for_load_state('networkidle')
+                    except Exception as e_login:
+                         # Si on n'arrive pas à se loguer, on capture le HTML pour debug
+                        raise Exception(f"Echec du remplissage du login CAS: {e_login}")
+
+                    # Vérification post-login
+                    if "login" in page.url or "cas" in page.url:
+                         raise Exception("La connexion semble avoir échoué (toujours sur la page de login). Vérifiez vos identifiants.")
+                    
+                    print("Reconnexion réussie ! Mise à jour de la session.")
+                    context.storage_state(path=AUTH_FILE)
+
                 try:
                     page.wait_for_selector('section.notes', timeout=30000)
                     print("Widget 'Dernières notes' détecté.")
                 except:
                     print("Timeout: Widget non trouvé.")
-                    # Ce n'est pas forcément une erreur critique (internet lent), mais on pourrait notifier si besoin
                 
                 parsed_grades = []
                 # ... (rest of logic) ...

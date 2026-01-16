@@ -5,6 +5,8 @@ services:
     restart: unless-stopped
     environment:
       - HP_URL=${HP_URL}
+      - HP_USERNAME=${HP_USERNAME}
+      - HP_PASSWORD=${HP_PASSWORD}
       - DISCORD_WEBHOOK_URL=${DISCORD_WEBHOOK_URL}
       - CHECK_INTERVAL_SECONDS=3600 # Vérification toutes les heures
       - HEADLESS_MODE=True
