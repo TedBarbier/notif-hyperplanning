@@ -83,8 +83,9 @@ class HyperplanningBot:
             "title": "Nouvelle Note Détectée ! 🎓",
             "color": color,
             "fields": [
-                {"name": "Matière", "value": grade_info['subject'], "inline": True},
-                {"name": "Note", "value": grade_info['grade'], "inline": True},
+                {"name": "Matière", "value": grade_info['subject'], "inline": False},
+                {"name": "Note", "value": f"**{grade_info['grade']}**", "inline": True},
+                {"name": "Moyenne Promo", "value": grade_info.get('class_avg', 'N/A'), "inline": True},
                 {"name": "Date", "value": grade_info['date'], "inline": True}
             ],
             "footer": {"text": "Hyperplanning Bot - INSA"}
@@ -126,7 +127,8 @@ class HyperplanningBot:
             print(f"Lancement navigateur (Headless: {HEADLESS_MODE})...")
             browser = p.chromium.launch(headless=HEADLESS_MODE)
             try:
-                context = browser.new_context(storage_state=AUTH_FILE)
+                # Force une résolution Desktop pour éviter le menu mobile
+                context = browser.new_context(storage_state=AUTH_FILE, viewport={'width': 1920, 'height': 1080})
             except Exception as e:
                 msg = f"Erreur chargement session: {e}"
                 print(msg)
@@ -137,12 +139,13 @@ class HyperplanningBot:
             page = context.new_page()
             
             print("Connexion à Hyperplanning...")
-            print("Connexion à Hyperplanning...")
             try:
                 page.goto(HP_URL, timeout=60000)
                 
-                # Vérification si on est redirigé vers le CAS (page de login)
-                # On regarde si on n'est PAS sur l'URL d'Hyperplanning ou si un formulaire de login est présent
+
+
+                
+                # --- AUTO-LOGIN LOGIC ---
                 if "login" in page.url or "cas" in page.url or page.locator("input[type='password']").count() > 0:
                     print("Session expirée. Tentative de reconnexion automatique au CAS...")
                     
@@ -152,86 +155,144 @@ class HyperplanningBot:
                     if not username or not password:
                         raise Exception("HP_USERNAME ou HP_PASSWORD manquant pour la reconnexion automatique.")
                     
-                    # Tentative de remplissage du formulaire CAS standard
-                    # Sélecteurs génériques souvent utilisés par les CAS
                     try:
                         print("Remplissage du formulaire...")
                         page.fill("input[name='username'], input[name='user'], #username", username)
                         page.fill("input[name='password'], input[name='pass'], #password", password)
-                        
-                        # Click sur le bouton de soumission (souvent type='submit' ou name='submit')
                         page.click("input[type='submit'], button[type='submit'], .btn-submit")
                         
                         print("Validation du formulaire...")
-                        page.wait_for_load_state('networkidle')
+                        try:
+                            # Wait for navigation
+                            page.wait_for_load_state('domcontentloaded', timeout=10000)
+                            time.sleep(3) 
+                        except:
+                            pass
                     except Exception as e_login:
-                         # Si on n'arrive pas à se loguer, on capture le HTML pour debug
-                        raise Exception(f"Echec du remplissage du login CAS: {e_login}")
+                        raise Exception(f"Echec du login CAS: {e_login}")
 
-                    # Vérification post-login
                     if "login" in page.url or "cas" in page.url:
-                         raise Exception("La connexion semble avoir échoué (toujours sur la page de login). Vérifiez vos identifiants.")
+                         raise Exception("La connexion semble avoir échoué (toujours sur la page de login).")
                     
                     print("Reconnexion réussie ! Mise à jour de la session.")
                     context.storage_state(path=AUTH_FILE)
+                # ------------------------
 
+                # --- NAVIGATION & PARSING ---
+                print("Navigation vers 'Résultats'...")
                 try:
-                    page.wait_for_selector('section.notes', timeout=30000)
-                    print("Widget 'Dernières notes' détecté.")
-                except:
-                    print("Timeout: Widget non trouvé.")
-                
-                parsed_grades = []
-                # ... (rest of logic) ...
-                try:
-                    items = page.locator("section.notes ul.liste-clickable li").all()
-                except:
-                    items = []
-                
-                print(f"Extraction : {len(items)} notes trouvées.")
-                
-                for item in items:
-                    try:
-                        subject = item.locator("h3 span").inner_text().strip()
-                        date = item.locator(".date").inner_text().strip()
-                        grade_locator = item.locator(".as-info.fixed")
-                        grade_text = grade_locator.inner_text().strip().replace('\n', '')
-                        
-                        grade_obj = {
-                            "subject": subject,
-                            "date": date,
-                            "grade": grade_text
-                        }
-                        parsed_grades.append(grade_obj)
-                    except Exception as e:
-                        pass # Ignorer erreurs de parsing individuelles
-
-                new_grades_count = 0
-                self.seen_grades = self.load_history()
-
-                for grade in reversed(parsed_grades):
-                    is_known = False
-                    for known in self.seen_grades:
-                        if known['subject'].strip() == grade['subject'].strip() and \
-                           known['date'].strip() == grade['date'].strip() and \
-                           known['grade'].strip() == grade['grade'].strip():
-                            is_known = True
-                            break
+                    # Clic sur l'onglet Résultats
+                    page.get_by_text("Résultats").first.click()
+                    page.wait_for_load_state('domcontentloaded', timeout=30000)
+                    time.sleep(2) # Petite pause pour le rendu JS
                     
-                    if not is_known:
-                        print(f"Nouvelle note : {grade['subject']} ({grade['grade']})")
-                        self.send_discord_notification(grade)
-                        self.seen_grades.append(grade)
-                        new_grades_count += 1
-                
-                if new_grades_count > 0:
-                    self.save_history()
-                    print(f"{new_grades_count} notifications envoyées.")
-                else:
-                    print("Aucune nouvelle note.")
+                    # Sélection Semestre 7
+                    print("Vérification du semestre...")
+                    selector = page.get_by_role("combobox", name="Sélectionnez une période")
+                    current_period = selector.inner_text().strip()
+                    
+                    if current_period != "Semestre 7":
+                        print(f"Changement de période (Actuel: {current_period}) -> Semestre 7...")
+                        selector.click()
+                        time.sleep(1)
+                        page.get_by_role("option", name="Semestre 7").click()
+                        time.sleep(3) # Attente rafraichissement tableau
+                        page.wait_for_load_state('domcontentloaded', timeout=10000)
+                    else:
+                        print("Période 'Semestre 7' déjà active.")
+                    
+                    print("Extraction des notes...")
+                    parsed_grades = []
+                    current_subject = "Inconnu"
+                    
+                    # On cherche les éléments de type "treeitem"
+                    rows = page.locator("div[role='treeitem']").all()
+                    
+                    for row in rows:
+                        try:
+                            # Niveau 1 = Matière, Niveau 2 = Note
+                            level = row.get_attribute("aria-level")
+                            
+                            if level == "1":
+                                subject_el = row.locator(".titre-principal")
+                                if subject_el.count() > 0:
+                                    current_subject = subject_el.inner_text().strip()
+                                    
+                            elif level == "2":
+                                date_el = row.locator(".date-contain")
+                                grade_el = row.locator(".zone-complementaire")
+                                
+                                if date_el.count() > 0 and grade_el.count() > 0:
+                                    date_text = date_el.inner_text().strip()
+                                    
+                                    # Essai de récupérer la note propre via aria-label
+                                    aria_label = grade_el.get_attribute("aria-label") or ""
+                                    if "Note étudiant :" in aria_label:
+                                        grade_text = aria_label.split("Note étudiant :")[1].strip()
+                                    else:
+                                        grade_text = grade_el.inner_text().strip().replace('\n', '')
+                                    
+                                    # Extraction de la moyenne de promo
+                                    class_avg = "N/A"
+                                    try:
+                                        infos_el = row.locator(".infos-supp .ie-sous-titre")
+                                        count = infos_el.count()
+                                        for i in range(count):
+                                            txt = infos_el.nth(i).inner_text()
+                                            if "Moyenne promotion" in txt:
+                                                if ":" in txt:
+                                                    class_avg = txt.split(":")[1].strip()
+                                                else:
+                                                    class_avg = txt.strip()
+                                                break
+                                    except:
+                                        pass
+
+                                    grade_obj = {
+                                        "subject": current_subject,
+                                        "date": date_text,
+                                        "grade": grade_text,
+                                        "class_avg": class_avg
+                                    }
+                                    parsed_grades.append(grade_obj)
+                        except:
+                            pass
+                    
+                    print(f"Extraction terminée : {len(parsed_grades)} notes trouvées.")
+                    
+                    # Traitement des nouvelles notes
+                    new_grades_count = 0
+                    self.seen_grades = self.load_history()
+
+                    for grade in reversed(parsed_grades):
+                        is_known = False
+                        for known in self.seen_grades:
+                            # Comparaison stricte
+                            if known['subject'].strip() == grade['subject'].strip() and \
+                               known['date'].strip() == grade['date'].strip() and \
+                               known['grade'].strip() == grade['grade'].strip():
+                                is_known = True
+                                break
+                        
+                        if not is_known:
+                            print(f"Nouvelle note détectée : {grade['subject']} -> {grade['grade']}")
+                            self.send_discord_notification(grade)
+                            self.seen_grades.append(grade)
+                            new_grades_count += 1
+                    
+                    if new_grades_count > 0:
+                        self.save_history()
+                        print(f"{new_grades_count} nouvelles notes enregistrées.")
+                    else:
+                        print("Aucune nouvelle note à signaler.")
+                        
+                except Exception as e_nav:
+                    print(f"Erreur lors de la navigation/parsing : {e_nav}")
+                    # On notifie quand même pour débugger au début
+                    # self.send_error_notification(f"Erreur parsing: {e_nav}")
 
             except Exception as e:
-                msg = f"Erreur pendant la navigation: {e}"
+                msg = f"Erreur critique navigation: {e}"
                 print(msg)
                 self.send_error_notification(msg)
             finally:
