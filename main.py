@@ -117,18 +117,19 @@ class HyperplanningBot:
             pass
 
     def run(self):
-        if not os.path.exists(AUTH_FILE):
-            msg = "Erreur: Fichier d'authentification introuvable. Configurez AUTH_STATE_JSON."
-            print(msg)
-            self.send_error_notification(msg)
-            return
+        # On ne bloque plus si le fichier n'existe pas, car on a l'auto-login.
 
         with sync_playwright() as p:
             print(f"Lancement navigateur (Headless: {HEADLESS_MODE})...")
             browser = p.chromium.launch(headless=HEADLESS_MODE)
             try:
                 # Force une résolution Desktop pour éviter le menu mobile
-                context = browser.new_context(storage_state=AUTH_FILE, viewport={'width': 1920, 'height': 1080})
+                if os.path.exists(AUTH_FILE):
+                    print(f"Chargement de la session depuis {AUTH_FILE}")
+                    context = browser.new_context(storage_state=AUTH_FILE, viewport={'width': 1920, 'height': 1080})
+                else:
+                    print("Pas de session existante. Démarrage d'une nouvelle session.")
+                    context = browser.new_context(viewport={'width': 1920, 'height': 1080})
             except Exception as e:
                 msg = f"Erreur chargement session: {e}"
                 print(msg)
