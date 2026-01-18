@@ -3,13 +3,27 @@ import json
 import time
 import requests
 import logging
+from datetime import datetime
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    # Fallback for Python < 3.9 if needed, though requirements check should ensure it works
+    from backports.zoneinfo import ZoneInfo
+
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 
 # Charger les variables d'environnement
 load_dotenv()
 
-# Configuration du logging
+# Configuration du logging avec Timezone
+LOG_TIMEZONE = os.getenv("LOG_TIMEZONE", "Europe/Paris")
+
+def timetz(*args):
+    return datetime.now(ZoneInfo(LOG_TIMEZONE)).timetuple()
+
+logging.Formatter.converter = timetz
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',

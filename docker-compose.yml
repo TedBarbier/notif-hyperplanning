@@ -11,6 +11,7 @@ services:
       - CHECK_INTERVAL_SECONDS=3600 # Vérification toutes les heures
       - HEADLESS_MODE=True
       - AUTH_STATE_JSON=${AUTH_STATE_JSON}
+      - LOG_TIMEZONE=${LOG_TIMEZONE}
     volumes:
       - hyperplanning_data:/app/data
 
