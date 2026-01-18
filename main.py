@@ -2,11 +2,19 @@ import os
 import json
 import time
 import requests
+import logging
 from playwright.sync_api import sync_playwright
 from dotenv import load_dotenv
 
 # Charger les variables d'environnement
 load_dotenv()
+
+# Configuration du logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 
 # Définition des chemins persistants
 DATA_DIR = "data"
@@ -31,14 +39,14 @@ class HyperplanningBot:
         
         if not os.path.exists(AUTH_FILE):
             if auth_env:
-                print("Création du fichier auth_state.json à partir de la variable d'environnement...")
+                logging.info("Création du fichier auth_state.json à partir de la variable d'environnement...")
                 try:
                     with open(AUTH_FILE, "w", encoding="utf-8") as f:
                         f.write(auth_env)
                 except Exception as e:
-                    print(f"Erreur lors de l'écriture du fichier auth : {e}")
+                    logging.error(f"Erreur lors de l'écriture du fichier auth : {e}")
             else:
-                print("Attention : Pas de fichier auth_state.json ni de variable AUTH_STATE_JSON.")
+                logging.warning("Attention : Pas de fichier auth_state.json ni de variable AUTH_STATE_JSON.")
 
     def load_history(self):
         if os.path.exists(HISTORY_FILE):
@@ -54,7 +62,7 @@ class HyperplanningBot:
             with open(HISTORY_FILE, "w", encoding="utf-8") as f:
                 json.dump(self.seen_grades, f, ensure_ascii=False, indent=4)
         except Exception as e:
-            print(f"Erreur sauvegarde historique: {e}")
+            logging.error(f"Erreur sauvegarde historique: {e}")
 
     def send_discord_notification(self, grade_info):
         try:
@@ -76,7 +84,7 @@ class HyperplanningBot:
             else:
                 color = RED
         except Exception as e:
-            print(f"Erreur calcul couleur: {e}")
+            logging.error(f"Erreur calcul couleur: {e}")
             color = 3066993
 
         embed = {
@@ -96,9 +104,9 @@ class HyperplanningBot:
         }
         try:
             requests.post(DISCORD_WEBHOOK_URL, json=data)
-            print(f"Notification envoyée pour {grade_info['subject']}")
+            logging.info(f"Notification envoyée pour {grade_info['subject']}")
         except Exception as e:
-            print(f"Erreur lors de l'envoi Discord : {e}")
+            logging.error(f"Erreur lors de l'envoi Discord : {e}")
 
     def send_error_notification(self, error_message):
         embed = {
@@ -120,35 +128,34 @@ class HyperplanningBot:
         # On ne bloque plus si le fichier n'existe pas, car on a l'auto-login.
 
         with sync_playwright() as p:
-            print(f"Lancement navigateur (Headless: {HEADLESS_MODE})...")
+            logging.info(f"Lancement navigateur (Headless: {HEADLESS_MODE})...")
             browser = p.chromium.launch(headless=HEADLESS_MODE)
             try:
                 # Force une résolution Desktop pour éviter le menu mobile
                 if os.path.exists(AUTH_FILE):
-                    print(f"Chargement de la session depuis {AUTH_FILE}")
+                    logging.info(f"Chargement de la session depuis {AUTH_FILE}")
                     context = browser.new_context(storage_state=AUTH_FILE, viewport={'width': 1920, 'height': 1080})
                 else:
-                    print("Pas de session existante. Démarrage d'une nouvelle session.")
+                    logging.info("Pas de session existante. Démarrage d'une nouvelle session.")
                     context = browser.new_context(viewport={'width': 1920, 'height': 1080})
             except Exception as e:
                 msg = f"Erreur chargement session: {e}"
-                print(msg)
+                logging.error(msg)
                 self.send_error_notification(msg)
                 browser.close()
                 return
 
             page = context.new_page()
             
-            print("Connexion à Hyperplanning...")
+            logging.info("Connexion à Hyperplanning...")
             try:
                 page.goto(HP_URL, timeout=60000)
                 
 
-
                 
                 # --- AUTO-LOGIN LOGIC ---
                 if "login" in page.url or "cas" in page.url or page.locator("input[type='password']").count() > 0:
-                    print("Session expirée. Tentative de reconnexion automatique au CAS...")
+                    logging.info("Session expirée. Tentative de reconnexion automatique au CAS...")
                     
                     username = os.getenv("HP_USERNAME")
                     password = os.getenv("HP_PASSWORD")
@@ -157,12 +164,12 @@ class HyperplanningBot:
                         raise Exception("HP_USERNAME ou HP_PASSWORD manquant pour la reconnexion automatique.")
                     
                     try:
-                        print("Remplissage du formulaire...")
+                        logging.info("Remplissage du formulaire...")
                         page.fill("input[name='username'], input[name='user'], #username", username)
                         page.fill("input[name='password'], input[name='pass'], #password", password)
                         page.click("input[type='submit'], button[type='submit'], .btn-submit")
                         
-                        print("Validation du formulaire...")
+                        logging.info("Validation du formulaire...")
                         try:
                             # Wait for navigation
                             page.wait_for_load_state('domcontentloaded', timeout=10000)
@@ -175,12 +182,12 @@ class HyperplanningBot:
                     if "login" in page.url or "cas" in page.url:
                          raise Exception("La connexion semble avoir échoué (toujours sur la page de login).")
                     
-                    print("Reconnexion réussie ! Mise à jour de la session.")
+                    logging.info("Reconnexion réussie ! Mise à jour de la session.")
                     context.storage_state(path=AUTH_FILE)
                 # ------------------------
 
                 # --- NAVIGATION & PARSING ---
-                print("Navigation vers 'Résultats'...")
+                logging.info("Navigation vers 'Résultats'...")
                 try:
                     # Clic sur l'onglet Résultats
                     page.get_by_text("Résultats").first.click()
@@ -188,21 +195,21 @@ class HyperplanningBot:
                     time.sleep(2) # Petite pause pour le rendu JS
                     
                     # Sélection Semestre 7
-                    print("Vérification du semestre...")
+                    logging.info("Vérification du semestre...")
                     selector = page.get_by_role("combobox", name="Sélectionnez une période")
                     current_period = selector.inner_text().strip()
                     
                     if current_period != "Semestre 7":
-                        print(f"Changement de période (Actuel: {current_period}) -> Semestre 7...")
+                        logging.info(f"Changement de période (Actuel: {current_period}) -> Semestre 7...")
                         selector.click()
                         time.sleep(1)
                         page.get_by_role("option", name="Semestre 7").click()
                         time.sleep(3) # Attente rafraichissement tableau
                         page.wait_for_load_state('domcontentloaded', timeout=10000)
                     else:
-                        print("Période 'Semestre 7' déjà active.")
+                        logging.info("Période 'Semestre 7' déjà active.")
                     
-                    print("Extraction des notes...")
+                    logging.info("Extraction des notes...")
                     parsed_grades = []
                     current_subject = "Inconnu"
                     
@@ -259,7 +266,7 @@ class HyperplanningBot:
                         except:
                             pass
                     
-                    print(f"Extraction terminée : {len(parsed_grades)} notes trouvées.")
+                    logging.info(f"Extraction terminée : {len(parsed_grades)} notes trouvées.")
                     
                     # Traitement des nouvelles notes
                     new_grades_count = 0
@@ -276,46 +283,46 @@ class HyperplanningBot:
                                 break
                         
                         if not is_known:
-                            print(f"Nouvelle note détectée : {grade['subject']} -> {grade['grade']}")
+                            logging.info(f"Nouvelle note détectée : {grade['subject']} -> {grade['grade']}")
                             self.send_discord_notification(grade)
                             self.seen_grades.append(grade)
                             new_grades_count += 1
                     
                     if new_grades_count > 0:
                         self.save_history()
-                        print(f"{new_grades_count} nouvelles notes enregistrées.")
+                        logging.info(f"{new_grades_count} nouvelles notes enregistrées.")
                     else:
-                        print("Aucune nouvelle note à signaler.")
+                        logging.info("Aucune nouvelle note à signaler.")
                         
                 except Exception as e_nav:
-                    print(f"Erreur lors de la navigation/parsing : {e_nav}")
+                    logging.error(f"Erreur lors de la navigation/parsing : {e_nav}")
                     # On notifie quand même pour débugger au début
                     # self.send_error_notification(f"Erreur parsing: {e_nav}")
 
             except Exception as e:
                 msg = f"Erreur critique navigation: {e}"
-                print(msg)
+                logging.error(msg)
                 self.send_error_notification(msg)
             finally:
                 browser.close()
 
 if __name__ == "__main__":
     if not HP_URL or not DISCORD_WEBHOOK_URL:
-        print("ERREUR: HP_URL ou DISCORD_WEBHOOK_URL manquant.")
+        logging.error("ERREUR: HP_URL ou DISCORD_WEBHOOK_URL manquant.")
     else:
         bot = HyperplanningBot()
-        print(f"Démarrage du bot RPi (Intervalle: {CHECK_INTERVAL_SECONDS}s)")
+        logging.info(f"Démarrage du bot RPi (Intervalle: {CHECK_INTERVAL_SECONDS}s)")
         
         while True:
             try:
                 bot.run()
             except Exception as e:
                 msg = f"Erreur critique lors de l'exécution : {e}"
-                print(msg)
+                logging.error(msg)
                 try:
                     bot.send_error_notification(msg)
                 except:
                     pass
             
-            print(f"Mise en veille pour {CHECK_INTERVAL_SECONDS} secondes...")
+            logging.info(f"Mise en veille pour {CHECK_INTERVAL_SECONDS} secondes...")
             time.sleep(CHECK_INTERVAL_SECONDS)
