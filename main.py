@@ -217,7 +217,35 @@ class HyperplanningBot:
                         logging.info(f"Changement de période (Actuel: {current_period}) -> Semestre 7...")
                         selector.click()
                         time.sleep(1)
-                        page.get_by_role("option", name="Semestre 7").first.click()
+                        # Gestion des doublons Semestre 7
+                        options = page.get_by_role("option", name="Semestre 7").all()
+                        logging.info(f"Options 'Semestre 7' détectées : {len(options)}")
+                        
+                        for i, opt in enumerate(options):
+                            try:
+                                opt_id = opt.get_attribute("id")
+                                logging.info(f"  - Option {i}: ID={opt_id}")
+                            except Exception as e:
+                                logging.warning(f"  - Option {i}: Erreur lecture ID ({e})")
+
+                        if len(options) > 0:
+                            selected_index = 0
+                            if len(options) > 1:
+                                logging.warning("--> Plusieurs 'Semestre 7' trouvés.")
+                                logging.info("--> Selon la configuration utilisateur (Target: STI 4A vs IoT), sélection du SECOND (index 1).")
+                                selected_index = 1
+                            
+                            try:
+                                options[selected_index].click()
+                                logging.info(f"--> Option {selected_index} cliquée avec succès.")
+                            except Exception as click_err:
+                                logging.error(f"Erreur au clic sur l'option {selected_index}: {click_err}")
+                                # Fallback au premier si le second échoue (ex: index out of range inattendue, bien que vérifié par len)
+                                if selected_index != 0:
+                                    logging.info("Tentative de repli sur l'option 0...")
+                                    options[0].click()
+                        else:
+                            logging.error("--> Aucune option 'Semestre 7' trouvée malgré la recherche !")
                         time.sleep(3) # Attente rafraichissement tableau
                         page.wait_for_load_state('domcontentloaded', timeout=10000)
                     else:
