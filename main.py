@@ -213,102 +213,112 @@ class HyperplanningBot:
                     selector = page.get_by_role("combobox", name="Sélectionnez une période")
                     current_period = selector.inner_text().strip()
                     
-                    if current_period != "Semestre 7":
-                        logging.info(f"Changement de période (Actuel: {current_period}) -> Semestre 7...")
-                        selector.click()
-                        time.sleep(1)
-                        # Gestion des doublons Semestre 7
-                        options = page.get_by_role("option", name="Semestre 7").all()
-                        logging.info(f"Options 'Semestre 7' détectées : {len(options)}")
-                        
-                        for i, opt in enumerate(options):
-                            try:
-                                opt_id = opt.get_attribute("id")
-                                logging.info(f"  - Option {i}: ID={opt_id}")
-                            except Exception as e:
-                                logging.warning(f"  - Option {i}: Erreur lecture ID ({e})")
+                    options = page.get_by_role("option", name="Semestre 7").all()
+                    logging.info(f"Options 'Semestre 7' détectées : {len(options)}")
+                    
+                    final_grades = []
+                    selected_option_index = -1
 
-                        if len(options) > 0:
-                            selected_index = 0
-                            if len(options) > 1:
-                                logging.warning("--> Plusieurs 'Semestre 7' trouvés.")
-                                logging.info("--> Selon la configuration utilisateur (Target: STI 4A vs IoT), sélection du SECOND (index 1).")
-                                selected_index = 1
-                            
-                            try:
-                                options[selected_index].click()
-                                logging.info(f"--> Option {selected_index} cliquée avec succès.")
-                            except Exception as click_err:
-                                logging.error(f"Erreur au clic sur l'option {selected_index}: {click_err}")
-                                # Fallback au premier si le second échoue (ex: index out of range inattendue, bien que vérifié par len)
-                                if selected_index != 0:
-                                    logging.info("Tentative de repli sur l'option 0...")
-                                    options[0].click()
-                        else:
-                            logging.error("--> Aucune option 'Semestre 7' trouvée malgré la recherche !")
-                        time.sleep(3) # Attente rafraichissement tableau
-                        page.wait_for_load_state('domcontentloaded', timeout=10000)
+                    if len(options) == 0:
+                         logging.error("--> Aucune option 'Semestre 7' trouvée !")
                     else:
-                        logging.info("Période 'Semestre 7' déjà active.")
-                    
-                    logging.info("Extraction des notes...")
-                    parsed_grades = []
-                    current_subject = "Inconnu"
-                    
-                    # On cherche les éléments de type "treeitem"
-                    rows = page.locator("div[role='treeitem']").all()
-                    
-                    for row in rows:
-                        try:
-                            # Niveau 1 = Matière, Niveau 2 = Note
-                            level = row.get_attribute("aria-level")
+                        # On teste chaque option pour trouver celle qui a des notes
+                        for i in range(len(options)):
+                            # Récupération fraîche des options à chaque tour (parfois nécessaire si le DOM change)
+                            # Mais ici on suppose que la liste ne change pas de ref, ou on re-query si besoin.
+                            # Pour être sûr avec Playwright, on re-clique l'élément via son index si les refs sont perdues,
+                            # mais 'options' contient des ElementHandles/Locators.
                             
-                            if level == "1":
-                                subject_el = row.locator(".titre-principal")
-                                if subject_el.count() > 0:
-                                    current_subject = subject_el.inner_text().strip()
-                                    
-                            elif level == "2":
-                                date_el = row.locator(".date-contain")
-                                grade_el = row.locator(".zone-complementaire")
+                            logging.info(f"--- Test de l'option Semestre 7 n°{i} ---")
+                            try:
+                                # Il faut parfois ré-ouvrir le menu si le clic précédent l'a fermé ou changé le contexte
+                                # Si le dropdown est fermé, on doit le rouvrir ?
+                                # Le comportement standard : on clique sur le selecteur, le menu s'ouvre, on clique l'option.
                                 
-                                if date_el.count() > 0 and grade_el.count() > 0:
-                                    date_text = date_el.inner_text().strip()
-                                    
-                                    # Essai de récupérer la note propre via aria-label
-                                    aria_label = grade_el.get_attribute("aria-label") or ""
-                                    if "Note étudiant :" in aria_label:
-                                        grade_text = aria_label.split("Note étudiant :")[1].strip()
-                                    else:
-                                        grade_text = grade_el.inner_text().strip().replace('\n', '')
-                                    
-                                    # Extraction de la moyenne de promo
-                                    class_avg = "N/A"
-                                    try:
-                                        infos_el = row.locator(".infos-supp .ie-sous-titre")
-                                        count = infos_el.count()
-                                        for i in range(count):
-                                            txt = infos_el.nth(i).inner_text()
-                                            if "Moyenne promotion" in txt:
-                                                if ":" in txt:
-                                                    class_avg = txt.split(":")[1].strip()
-                                                else:
-                                                    class_avg = txt.strip()
-                                                break
-                                    except:
-                                        pass
+                                selector.click() # On réouvre le menu à chaque fois pour être sûr
+                                time.sleep(1)
+                                
+                                # On re-capture les options car le DOM peut avoir changé (rerender)
+                                current_opts = page.get_by_role("option", name="Semestre 7").all()
+                                if i < len(current_opts):
+                                    current_opts[i].click()
+                                else:
+                                    logging.warning(f"Option {i} introuvable lors du 2ème passage.")
+                                    continue
+                                
+                                time.sleep(3) # Attente chargement tableau
+                                page.wait_for_load_state('domcontentloaded', timeout=10000)
 
-                                    grade_obj = {
-                                        "subject": current_subject,
-                                        "date": date_text,
-                                        "grade": grade_text,
-                                        "class_avg": class_avg
-                                    }
-                                    parsed_grades.append(grade_obj)
-                        except:
-                            pass
-                    
-                    logging.info(f"Extraction terminée : {len(parsed_grades)} notes trouvées.")
+                                grades_found = self._parse_grades(page)
+                                logging.info(f"--> Option {i} : {len(grades_found)} notes trouvées.")
+
+                                if len(grades_found) > len(final_grades):
+                                    final_grades = grades_found
+                                    selected_option_index = i
+                                    # Si on trouve des notes, c'est probablement le bon. 
+                                    # Optimisation : si on en trouve > 0, on peut peut-être s'arrêter ? 
+                                    # Mais l'utilisateur a dit "l'un a des notes, l'autre pas".
+                                    # Prenons celui qui en a le plus pour être sûr.
+                            except Exception as e_opt:
+                                logging.error(f"Erreur test option {i}: {e_opt}")
+
+                    if selected_option_index != -1:
+                        logging.info(f"SÉLECTION FINALE : Option {selected_option_index} retenue ({len(final_grades)} notes).")
+                        parsed_grades = final_grades
+                    else:
+                        logging.warning("Aucune note trouvée dans aucune des options testées.")
+                        parsed_grades = []
+
+    def _parse_grades(self, page):
+        parsed = []
+        try:
+            current_subject = "Inconnu"
+            rows = page.locator("div[role='treeitem']").all()
+            for row in rows:
+                try:
+                    level = row.get_attribute("aria-level")
+                    if level == "1":
+                        subject_el = row.locator(".titre-principal")
+                        if subject_el.count() > 0:
+                            current_subject = subject_el.inner_text().strip()
+                    elif level == "2":
+                        date_el = row.locator(".date-contain")
+                        grade_el = row.locator(".zone-complementaire")
+                        
+                        if date_el.count() > 0 and grade_el.count() > 0:
+                            date_text = date_el.inner_text().strip()
+                            aria_label = grade_el.get_attribute("aria-label") or ""
+                            if "Note étudiant :" in aria_label:
+                                grade_text = aria_label.split("Note étudiant :")[1].strip()
+                            else:
+                                grade_text = grade_el.inner_text().strip().replace('\n', '')
+                            
+                            class_avg = "N/A"
+                            try:
+                                infos_el = row.locator(".infos-supp .ie-sous-titre")
+                                count = infos_el.count()
+                                for k in range(count):
+                                    txt = infos_el.nth(k).inner_text()
+                                    if "Moyenne promotion" in txt:
+                                        if ":" in txt:
+                                            class_avg = txt.split(":")[1].strip()
+                                        else:
+                                            class_avg = txt.strip()
+                                        break
+                            except:
+                                pass
+
+                            parsed.append({
+                                "subject": current_subject,
+                                "date": date_text,
+                                "grade": grade_text,
+                                "class_avg": class_avg
+                            })
+                except:
+                    pass
+        except Exception as e:
+            logging.error(f"Erreur _parse_grades: {e}")
+        return parsed
                     
                     # Traitement des nouvelles notes
                     new_grades_count = 0
@@ -329,6 +339,10 @@ class HyperplanningBot:
                             self.send_discord_notification(grade)
                             self.seen_grades.append(grade)
                             new_grades_count += 1
+                        else:
+                             # Debug pour comprendre pourquoi c'est ignoré (optionnel, peut être verbeux)
+                             # logging.debug(f"Note ignorée (déjà connue) : {grade['subject']} - {grade['grade']}")
+                             pass
                     
                     if new_grades_count > 0:
                         self.save_history()
