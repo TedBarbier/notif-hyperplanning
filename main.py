@@ -217,7 +217,7 @@ class HyperplanningBot:
                         logging.info(f"Changement de période (Actuel: {current_period}) -> Semestre 7...")
                         selector.click()
                         time.sleep(1)
-                        page.get_by_role("option", name="Semestre 7").click()
+                        page.get_by_role("option", name="Semestre 7").first.click()
                         time.sleep(3) # Attente rafraichissement tableau
                         page.wait_for_load_state('domcontentloaded', timeout=10000)
                     else:
