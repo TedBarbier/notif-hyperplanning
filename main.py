@@ -208,77 +208,95 @@ class HyperplanningBot:
                     page.wait_for_load_state('domcontentloaded', timeout=30000)
                     time.sleep(2) # Petite pause pour le rendu JS
                     
-                    # Sélection Semestre 7
-                    logging.info("Vérification du semestre...")
-                    selector = page.get_by_role("combobox", name="Sélectionnez une période")
-                    current_period = selector.inner_text().strip()
+                    # --- Multi-Semester Loop ---
+                    logging.info("Début du scan multi-périodes...")
                     
-                    if current_period != "Semestre 7":
-                        logging.info(f"Changement de période (Actuel: {current_period}) -> Semestre 7...")
-                        selector.click()
-                        time.sleep(1)
-                        page.get_by_role("option", name="Semestre 7").click()
-                        time.sleep(3) # Attente rafraichissement tableau
-                        page.wait_for_load_state('domcontentloaded', timeout=10000)
-                    else:
-                        logging.info("Période 'Semestre 7' déjà active.")
-                    
-                    logging.info("Extraction des notes...")
-                    parsed_grades = []
-                    current_subject = "Inconnu"
-                    
-                    # On cherche les éléments de type "treeitem"
-                    rows = page.locator("div[role='treeitem']").all()
-                    
-                    for row in rows:
-                        try:
-                            # Niveau 1 = Matière, Niveau 2 = Note
-                            level = row.get_attribute("aria-level")
-                            
-                            if level == "1":
-                                subject_el = row.locator(".titre-principal")
-                                if subject_el.count() > 0:
-                                    current_subject = subject_el.inner_text().strip()
-                                    
-                            elif level == "2":
-                                date_el = row.locator(".date-contain")
-                                grade_el = row.locator(".zone-complementaire")
-                                
-                                if date_el.count() > 0 and grade_el.count() > 0:
-                                    date_text = date_el.inner_text().strip()
-                                    
-                                    # Essai de récupérer la note propre via aria-label
-                                    aria_label = grade_el.get_attribute("aria-label") or ""
-                                    if "Note étudiant :" in aria_label:
-                                        grade_text = aria_label.split("Note étudiant :")[1].strip()
-                                    else:
-                                        grade_text = grade_el.inner_text().strip().replace('\n', '')
-                                    
-                                    # Extraction de la moyenne de promo
-                                    class_avg = "N/A"
-                                    try:
-                                        infos_el = row.locator(".infos-supp .ie-sous-titre")
-                                        count = infos_el.count()
-                                        for i in range(count):
-                                            txt = infos_el.nth(i).inner_text()
-                                            if "Moyenne promotion" in txt:
-                                                if ":" in txt:
-                                                    class_avg = txt.split(":")[1].strip()
-                                                else:
-                                                    class_avg = txt.strip()
-                                                break
-                                    except:
-                                        pass
+                    # On ouvre le dropdown pour compter les options
+                    # (Il faut le faire au moins une fois pour charger le DOM si c'est du lazy loading, 
+                    # mais surtout pour avoir le count)
+                    try:
+                        combobox = page.get_by_role("combobox", name="Sélectionnez une période")
+                        if combobox.count() > 0:
+                            combobox.click()
+                            time.sleep(1)
+                            page.wait_for_selector(".as-li", state="attached", timeout=5000)
+                    except:
+                        pass # Peut-être déjà ouvert ou autre structure
 
-                                    grade_obj = {
-                                        "subject": current_subject,
-                                        "date": date_text,
-                                        "grade": grade_text,
-                                        "class_avg": class_avg
-                                    }
-                                    parsed_grades.append(grade_obj)
-                        except:
-                            pass
+                    # On récupère le nombre d'options
+                    options_count = page.locator(".as-li").count()
+                    logging.info(f"{options_count} périodes trouvées.")
+                    
+                    parsed_grades = []
+                    
+                    for i in range(options_count):
+                        try:
+                            # Re-sélection du combobox à chaque itération car le DOM peut changer
+                            combobox = page.get_by_role("combobox", name="Sélectionnez une période")
+                            if combobox.count() > 0:
+                                # On clique pour ouvrir (si fermé)
+                                # L'état est difficile à traquer, donc on clique. 
+                                # Si ça ferme, on ré-ouvrira. Mais locator(".as-li") doit être visible.
+                                # Le plus simple est de cliquer, check si options visibles.
+                                combobox.click()
+                                time.sleep(1)
+                            
+                            # On clique sur l'option i
+                            option = page.locator(".as-li").nth(i)
+                            opt_text = option.inner_text().strip().replace('\n', ' ')
+                            logging.info(f"Scan de la période [{i+1}/{options_count}] : {opt_text}")
+                            
+                            option.click()
+                            time.sleep(3) # Attente chargement
+                            page.wait_for_load_state('domcontentloaded')
+                            
+                            # --- Parsing des notes de cette période ---
+                            current_subject = "Inconnu"
+                            rows = page.locator("div[role='treeitem']").all()
+                            
+                            for row in rows:
+                                try:
+                                    level = row.get_attribute("aria-level")
+                                    if level == "1":
+                                        subject_el = row.locator(".titre-principal")
+                                        if subject_el.count() > 0:
+                                            current_subject = subject_el.inner_text().strip()
+                                            
+                                    elif level == "2":
+                                        date_el = row.locator(".date-contain")
+                                        grade_el = row.locator(".zone-complementaire")
+                                        
+                                        if date_el.count() > 0 and grade_el.count() > 0:
+                                            date_text = date_el.inner_text().strip()
+                                            
+                                            aria_label = grade_el.get_attribute("aria-label") or ""
+                                            if "Note étudiant :" in aria_label:
+                                                grade_text = aria_label.split("Note étudiant :")[1].strip()
+                                            else:
+                                                grade_text = grade_el.inner_text().strip().replace('\n', '')
+                                            
+                                            class_avg = "N/A"
+                                            try:
+                                                infos_el = row.locator(".infos-supp .ie-sous-titre")
+                                                for k in range(infos_el.count()):
+                                                    txt = infos_el.nth(k).inner_text()
+                                                    if "Moyenne promotion" in txt:
+                                                        class_avg = txt.split(":")[1].strip() if ":" in txt else txt.strip()
+                                                        break
+                                            except:
+                                                pass
+    
+                                            grade_obj = {
+                                                "subject": current_subject,
+                                                "date": date_text,
+                                                "grade": grade_text,
+                                                "class_avg": class_avg
+                                            }
+                                            parsed_grades.append(grade_obj)
+                                except:
+                                    pass
+                        except Exception as e_loop:
+                             logging.error(f"Erreur lors du scan de l'option {i}: {e_loop}")
                     
                     logging.info(f"Extraction terminée : {len(parsed_grades)} notes trouvées.")
                     
