@@ -319,6 +319,10 @@ class HyperplanningBot:
                             self.send_discord_notification(grade)
                             self.seen_grades.append(grade)
                             new_grades_count += 1
+                        else:
+                             # Debug pour comprendre pourquoi c'est ignoré (optionnel, peut être verbeux)
+                             # logging.debug(f"Note ignorée (déjà connue) : {grade['subject']} - {grade['grade']}")
+                             pass
                     
                     if new_grades_count > 0:
                         self.save_history()
