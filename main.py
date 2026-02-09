@@ -231,22 +231,44 @@ class HyperplanningBot:
                     
                     for i in range(options_count):
                         try:
-                            # Re-sélection du combobox à chaque itération car le DOM peut changer
+                            # Re-sélection du combobox
                             combobox = page.get_by_role("combobox", name="Sélectionnez une période")
-                            if combobox.count() > 0:
-                                # On clique pour ouvrir (si fermé)
-                                # L'état est difficile à traquer, donc on clique. 
-                                # Si ça ferme, on ré-ouvrira. Mais locator(".as-li") doit être visible.
-                                # Le plus simple est de cliquer, check si options visibles.
-                                combobox.click()
-                                time.sleep(1)
                             
+                            # On vérifie si le menu est ouvert (options visibles)
+                            dropdown_open = False
+                            try:
+                                if page.locator(".as-li").first.is_visible():
+                                    dropdown_open = True
+                            except:
+                                pass
+
+                            if not dropdown_open:
+                                logging.info("Ouverture du menu déroulant...")
+                                combobox.click()
+                                # Attente que les options apparaissent
+                                try:
+                                    page.wait_for_selector(".as-li", state="visible", timeout=3000)
+                                except:
+                                    logging.warning("Timeout attente ouverture menu, nouvel essai...")
+                                    combobox.click()
+                                    time.sleep(1)
+
                             # On clique sur l'option i
                             option = page.locator(".as-li").nth(i)
                             opt_text = option.inner_text().strip().replace('\n', ' ')
+                            
+                            # FILTRE: On ne garde que "Semestre X". On ignore "STI 4A...", "Semestriel", etc.
+                            if not opt_text.startswith("Semestre"):
+                                logging.info(f"Période ignorée (filtre) : {opt_text}")
+                                continue
+
                             logging.info(f"Scan de la période [{i+1}/{options_count}] : {opt_text}")
                             
-                            option.click()
+                            # Si l'option est déjà sélectionnée, le clic peut fermer le menu ou ne rien faire
+                            # Mais on veut forcer le rechargement.
+                            # On utilise force=True pour éviter les checks de visibilité qui echouent parfois si animation
+                            option.click(force=True)
+                            
                             time.sleep(3) # Attente chargement
                             page.wait_for_load_state('domcontentloaded')
                             
